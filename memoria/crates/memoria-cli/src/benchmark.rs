@@ -106,6 +106,8 @@ mod tests {
             seed_memories: vec![SeedMemory {
                 content: "memory".into(),
                 memory_type: "semantic".into(),
+                session_id: None,
+                observed_at: None,
                 is_outdated: false,
                 age_days: None,
                 initial_confidence: None,
@@ -116,6 +118,7 @@ mod tests {
             assertions: vec![MemoryAssertion {
                 query: "query".into(),
                 top_k: 3,
+                include_cross_session: false,
                 expected_contents: vec!["memory".into()],
                 excluded_contents: vec![],
             }],

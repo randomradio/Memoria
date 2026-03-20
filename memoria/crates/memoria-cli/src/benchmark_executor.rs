@@ -3,6 +3,8 @@ use crate::benchmark::{
 };
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct BenchmarkExecutor {
@@ -12,6 +14,9 @@ pub struct BenchmarkExecutor {
 }
 
 impl BenchmarkExecutor {
+    const STORE_RETRIES: usize = 3;
+    const RETRIEVE_RETRIES: usize = 4;
+
     pub fn new(api_url: &str, token: &str) -> Self {
         let run_id = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -60,6 +65,8 @@ impl BenchmarkExecutor {
                 &seed.content,
                 &seed.memory_type,
                 &session_id,
+                seed.session_id.as_deref(),
+                seed.observed_at.as_deref(),
                 seed.age_days,
                 seed.initial_confidence,
                 seed.trust_tier.as_deref(),
@@ -104,16 +111,20 @@ impl BenchmarkExecutor {
         client: &Client,
         content: &str,
         memory_type: &str,
-        session_id: &str,
+        default_session_id: &str,
+        session_id: Option<&str>,
+        observed_at: Option<&str>,
         age_days: Option<f64>,
         confidence: Option<f64>,
         trust_tier: Option<&str>,
     ) -> anyhow::Result<String> {
         let mut body = json!({
             "content": content, "memory_type": memory_type,
-            "session_id": session_id, "source": "benchmark",
+            "session_id": session_id.unwrap_or(default_session_id), "source": "benchmark",
         });
-        if let Some(days) = age_days {
+        if let Some(observed_at) = observed_at {
+            body["observed_at"] = json!(observed_at);
+        } else if let Some(days) = age_days {
             let secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -128,35 +139,74 @@ impl BenchmarkExecutor {
             body["trust_tier"] = json!(t);
         }
 
-        let resp = client
-            .post(format!("{}/v1/memories", self.base_url))
-            .json(&body)
-            .send()?;
-        let data: Value = resp.json()?;
-        Ok(data["memory_id"].as_str().unwrap_or("").to_string())
+        let url = format!("{}/v1/memories", self.base_url);
+        let mut last_err: Option<anyhow::Error> = None;
+        for attempt in 0..Self::STORE_RETRIES {
+            match client.post(&url).json(&body).send() {
+                Ok(resp) => match resp.error_for_status() {
+                    Ok(ok) => match ok.json::<Value>() {
+                        Ok(data) => {
+                            return Ok(data["memory_id"].as_str().unwrap_or("").to_string());
+                        }
+                        Err(e) => last_err = Some(e.into()),
+                    },
+                    Err(e) => last_err = Some(e.into()),
+                },
+                Err(e) => last_err = Some(e.into()),
+            }
+            if attempt + 1 < Self::STORE_RETRIES {
+                thread::sleep(Duration::from_millis(250 * (attempt as u64 + 1)));
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("store failed with unknown error")))
     }
 
-    fn retrieve(&self, client: &Client, query: &str, session_id: &str, top_k: i64) -> Vec<String> {
-        let resp = client
-            .post(format!("{}/v1/memories/retrieve", self.base_url))
-            .json(&json!({"query": query, "top_k": top_k, "session_id": session_id}))
-            .send();
-        let data: Value = match resp.and_then(|r| r.json()) {
-            Ok(v) => v,
-            Err(_) => return vec![],
-        };
-        let items = if data.is_array() {
-            data.as_array()
-        } else {
-            data["results"].as_array()
-        };
-        items
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|i| i["content"].as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default()
+    fn retrieve(
+        &self,
+        client: &Client,
+        query: &str,
+        session_id: &str,
+        top_k: i64,
+        include_cross_session: bool,
+    ) -> Vec<String> {
+        let url = format!("{}/v1/memories/retrieve", self.base_url);
+        let body = json!({
+            "query": query,
+            "top_k": top_k,
+            "session_id": session_id,
+            "include_cross_session": include_cross_session
+        });
+
+        for attempt in 0..Self::RETRIEVE_RETRIES {
+            let resp = client.post(&url).json(&body).send();
+            let data: Value = match resp.and_then(|r| r.error_for_status()).and_then(|r| r.json()) {
+                Ok(v) => v,
+                Err(_) => {
+                    if attempt + 1 < Self::RETRIEVE_RETRIES {
+                        thread::sleep(Duration::from_millis(250 * (attempt as u64 + 1)));
+                        continue;
+                    }
+                    return vec![];
+                }
+            };
+            let items = if data.is_array() {
+                data.as_array()
+            } else {
+                data["results"].as_array()
+            };
+            let contents = items
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|i| i["content"].as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !contents.is_empty() || attempt + 1 == Self::RETRIEVE_RETRIES {
+                return contents;
+            }
+            thread::sleep(Duration::from_millis(250 * (attempt as u64 + 1)));
+        }
+        vec![]
     }
 
     fn run_step(&self, client: &Client, step: &ScenarioStep, session_id: &str) -> StepResult {
@@ -169,6 +219,8 @@ impl BenchmarkExecutor {
                         step.content.as_deref().unwrap_or(""),
                         step.memory_type.as_deref().unwrap_or("semantic"),
                         session_id,
+                        step.session_id.as_deref(),
+                        step.observed_at.as_deref(),
                         step.age_days,
                         step.initial_confidence,
                         step.trust_tier.as_deref(),
@@ -180,6 +232,7 @@ impl BenchmarkExecutor {
                         step.query.as_deref().unwrap_or(""),
                         session_id,
                         step.top_k.unwrap_or(5),
+                        false,
                     );
                 }
                 "search" => {
@@ -232,7 +285,13 @@ impl BenchmarkExecutor {
         assertion: &MemoryAssertion,
         session_id: &str,
     ) -> AssertionResult {
-        let contents = self.retrieve(client, &assertion.query, session_id, assertion.top_k);
+        let contents = self.retrieve(
+            client,
+            &assertion.query,
+            session_id,
+            assertion.top_k,
+            assertion.include_cross_session,
+        );
         AssertionResult {
             _query: assertion.query.clone(),
             returned_contents: contents,

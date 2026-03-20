@@ -41,6 +41,10 @@ pub struct SeedMemory {
     #[serde(default = "default_semantic")]
     pub memory_type: String,
     #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub observed_at: Option<String>,
+    #[serde(default)]
     pub is_outdated: bool,
     pub age_days: Option<f64>,
     pub initial_confidence: Option<f64>,
@@ -56,6 +60,8 @@ pub struct ScenarioStep {
     pub action: String,
     pub content: Option<String>,
     pub memory_type: Option<String>,
+    pub session_id: Option<String>,
+    pub observed_at: Option<String>,
     pub query: Option<String>,
     pub top_k: Option<i64>,
     pub reason: Option<String>,
@@ -70,6 +76,8 @@ pub struct MemoryAssertion {
     pub query: String,
     #[serde(default = "default_top_k")]
     pub top_k: i64,
+    #[serde(default)]
+    pub include_cross_session: bool,
     pub expected_contents: Vec<String>,
     #[serde(default)]
     pub excluded_contents: Vec<String>,
