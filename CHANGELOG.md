@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-03-20
+
+### 🐛 Bug Fixes
+
+- Security and snapshot count  (#61) ([eafed50](https://github.com/matrixorigin/Memoria/commit/eafed5001036ff6720281eea5a625b793bcfc036))
+- Flaky ci test (#58) ([c788dc0](https://github.com/matrixorigin/Memoria/commit/c788dc072c3d6541d438d75a35fd8fa1d88a7887))
+
+### 🚀 Features
+
+- Feedback system, adaptive retrieval, governance audit trail, API hardening, and comprehensive e2e tests (#65) ([539fd8a](https://github.com/matrixorigin/Memoria/commit/539fd8a3aa33c8503400f8f824af697f1c59ac53))
+- Add --tool flag to mcp subcommand and fix codex support (#64) ([1701094](https://github.com/matrixorigin/Memoria/commit/1701094a99fa7677d9e2264d1b92a3be6c67db1b))
+- Interactive init prefill, Codex support, self-update, install auto-init (#63) ([6394d8d](https://github.com/matrixorigin/Memoria/commit/6394d8d5b5924a36adf8f5259bfaa436018ef3f2))
+- Enable apikey authentication (#47) ([18c6c17](https://github.com/matrixorigin/Memoria/commit/18c6c17f1029244fd30149159a0c8e19142e57dd))
+## [0.2.1] - 2026-03-19
+
+### 🏗️ Build
+
+- **ci**: Switch Linux release binaries to musl static linking (#56) ([b651cd1](https://github.com/matrixorigin/Memoria/commit/b651cd1abed188bca6b701e12be17000d8a35183))
+
+### 📚 Documentation
+
+- **openclaw**: Simplify install path and clarify success checks (#57) ([1e5a5f3](https://github.com/matrixorigin/Memoria/commit/1e5a5f3d350ccb26af3362da11533e97ea61823e))
+
+### 🚀 Features
+
+- More skills (#55) ([f62d777](https://github.com/matrixorigin/Memoria/commit/f62d777586e201956f5a86a89b15a476a0873561))
+
+### 🧪 Testing
+
+- Add session consistency test (#54) ([27bf9f8](https://github.com/matrixorigin/Memoria/commit/27bf9f89f5ac52eb6056c72fa0f30754a719cd9d))
+## [0.2.0-rc] - 2026-03-19
+
+### 🐛 Bug Fixes
+
+- Update README logo to new memoria-logo asset (#52) ([7d1245f](https://github.com/matrixorigin/Memoria/commit/7d1245faa3e5b867016c91e0b3dd1363df8e8187))
+- UTF-8 string truncation panic with multi-byte characters (#48) ([f774499](https://github.com/matrixorigin/Memoria/commit/f774499caa6c6b981d0a8eaa1b4f3d46d831e3ae))
+- Install.sh Text file busy error when upgrading (#46) ([a79f971](https://github.com/matrixorigin/Memoria/commit/a79f97120b33ce1f91aef42518073fdc806be472))
+
+### 🚀 Features
+
+- **benchmark**: Separate official LongMemEval and BEAM reporting (#50) ([72998fe](https://github.com/matrixorigin/Memoria/commit/72998fe38676209c6a75de2da606998d8da26414))
+- Add OpenClaw-native Memoria onboarding (#49) ([7560190](https://github.com/matrixorigin/Memoria/commit/75601906907079417f6756b86ee538d8085df14e))
+- Implement plugin framework (#45) ([4301f97](https://github.com/matrixorigin/Memoria/commit/4301f976e0757b9d465b43891bd20745aea17a28))
+- Replace hand-rolled prompts with cliclack TUI wizard (#44) ([ef071bd](https://github.com/matrixorigin/Memoria/commit/ef071bd33be262154fee23903edaa33fbe81d4b6))
 ## [0.1.0] - 2026-03-18
 
 ### 🐛 Bug Fixes
