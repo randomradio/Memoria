@@ -272,7 +272,312 @@ Full API details: [API Reference Skill](skills/api-reference/SKILL.md)
 | `memoria rules` | Update steering rules (auto-detect, `--tool`, or `-i`) |
 | `memoria mcp` | Start MCP server |
 | `memoria serve` | Start REST API server |
-| `memoria benchmark` | Run benchmark suite |
+| `memoria plugin init --dir <dir> --name <name>` | Scaffold a new governance plugin project |
+| `memoria plugin publish --package-dir <dir>` | Publish plugin to shared repository |
+| `memoria plugin dev-keygen --dir <dir>` | Generate ed25519 dev signing keypair |
+| `memoria benchmark --api-url <url> --token <key> --dataset <name>` | Run benchmark against API |
+
+---
+
+## Benchmark Reporting
+
+For LongMemEval and BEAM, the primary reporting path is to keep each benchmark's official
+categories separate:
+
+- LongMemEval: report by official LongMemEval category
+- BEAM: report by official BEAM ability
+
+If you need a secondary internal rollup, you can also normalize reports into a shared
+6-bucket memory taxonomy:
+
+- `Single-Session Grounding`
+- `Preference Understanding`
+- `Multi-Session Synthesis`
+- `Temporal State Tracking`
+- `Knowledge Update And Conflict Handling`
+- `Abstention And Constraint Following`
+
+Use the rollup helper after generating JSON benchmark reports:
+
+```bash
+uv run python scripts/rollup_benchmark_report.py path/to/report.json
+```
+
+Or recursively over a results directory:
+
+```bash
+uv run python scripts/rollup_benchmark_report.py benchmarks/results/
+```
+
+This optional post-processing augments each report with:
+
+- top-level `memory_ability_taxonomy`
+- top-level `by_memory_ability_bucket`
+- per-result `memory_ability_bucket`
+- per-result `memory_ability_bucket_label`
+
+See [Memory Ability Taxonomy](docs/memory-ability-taxonomy.md) for the LongMemEval and BEAM mapping and the rationale behind the 6-bucket summary.
+
+---
+
+## Modifying the MCP Config
+
+`memoria init` generates the config once. To change settings afterwards, edit the config file directly:
+
+- **Kiro**: `.kiro/settings/mcp.json`
+- **Cursor**: `.cursor/mcp.json`
+- **Claude**: `.mcp.json`
+
+**Switch from local DB to remote server:**
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria",
+      "args": ["mcp", "--api-url", "https://your-server:8100", "--token", "sk-your-key..."]
+    }
+  }
+}
+```
+
+**Change embedding provider** (edit the `env` block):
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria",
+      "args": ["mcp", "--db-url", "mysql+pymysql://root:111@localhost:6001/memoria", "--user", "alice"],
+      "env": {
+        "EMBEDDING_PROVIDER": "openai",
+        "EMBEDDING_BASE_URL": "https://api.siliconflow.cn/v1",
+        "EMBEDDING_API_KEY": "sk-...",
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024"
+      }
+    }
+  }
+}
+```
+
+**Re-run init to overwrite** (use `--force` to also overwrite customized steering rules):
+```bash
+memoria init --tool kiro --api-url "https://new-server:8100" --token "sk-new-key..."
+# steering rules are preserved unless --force is passed
+```
+
+**Update steering rules only** (after upgrading Memoria):
+```bash
+memoria rules
+# restart your AI tool
+```
+
+Restart your AI tool after any config change.
+
+---
+
+## Setup by Tool
+
+### Kiro
+
+```bash
+cd your-project
+memoria init --tool kiro
+```
+
+Or manually create `.kiro/settings/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria",
+      "args": ["mcp", "--db-url", "mysql+pymysql://root:111@localhost:6001/memoria", "--user", "alice"]
+    }
+  }
+}
+```
+
+The steering rule is bundled in the binary and written automatically by `memoria init`. Restart Kiro.
+
+### Cursor
+
+```bash
+cd your-project
+memoria init --tool cursor
+```
+
+Or manually create `.cursor/mcp.json` (same structure as above). Restart Cursor.
+
+### Claude Desktop
+
+```bash
+cd your-project
+memoria init --tool claude
+```
+
+Or manually edit `claude_desktop_config.json` (same structure). Restart Claude Desktop.
+
+---
+
+## Configuration Options
+
+### Embedding providers
+
+Memoria needs an embedding model to vectorize memories for semantic search.
+
+| Provider | Quality | Privacy | Cost | First-use latency | Ongoing latency |
+|----------|---------|---------|------|-------------------|-----------------|
+| **Local** (default) | Good | ✅ Data never leaves machine | Free | Model download on first query | Fast (in-process) |
+| **OpenAI / SiliconFlow** | Better | ⚠️ Text sent to API | API key required | None | Network round-trip |
+| **Custom service** | Varies | Depends on host | Self-hosted | None | Network round-trip |
+
+Configure via environment variables in the MCP config `env` block:
+
+```json
+"env": {
+  "EMBEDDING_PROVIDER": "openai",
+  "EMBEDDING_BASE_URL": "https://api.siliconflow.cn/v1",
+  "EMBEDDING_API_KEY": "sk-...",
+  "EMBEDDING_MODEL": "BAAI/bge-m3",
+  "EMBEDDING_DIM": "1024"
+}
+```
+
+Leave all empty to use local embedding (all-MiniLM-L6-v2, dim=384).
+
+**💡 Local Embedding Tips:**
+Local embedding requires building from source with `--features local-embedding` (pre-built binaries don't include it). See [Local Embedding Guide](skills/local-embedding/SKILL.md) for build instructions, supported models, and troubleshooting.
+
+**⚠️ CRITICAL: Configure embedding BEFORE the MCP server starts for the first time.**
+ Tables are created on first startup with the configured dimension. Changing it later requires re-creating the embedding column (destructive).
+
+---
+
+## Manual Tuning & Optimization
+
+Integration quality depends on your AI agent's reasoning ability and steering rules. Out-of-the-box behavior may not be optimal.
+
+**If memory usage feels suboptimal**, edit the steering rules in `.kiro/steering/memory.md`, `.cursor/rules/memory.mdc`, or `CLAUDE.md` to be more explicit. For example, if your agent forgets to retrieve memories at conversation start:
+
+```markdown
+CRITICAL: At the start of EVERY conversation, call memory_retrieve with the user's first message.
+```
+
+## Adapting to Other Agents
+
+Memoria uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) standard. Any MCP-compatible agent can integrate by pointing to the server:
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria",
+      "args": ["mcp", "--db-url", "mysql+pymysql://root:111@localhost:6001/memoria", "--user", "alice"],
+      "env": {
+        "EMBEDDING_PROVIDER": "openai",
+        "EMBEDDING_API_KEY": "sk-...",
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024"
+      }
+    }
+  }
+}
+```
+
+Or in remote mode (proxy to a deployed Memoria REST API):
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria",
+      "args": ["mcp", "--api-url", "https://memoria-host:8100", "--token", "sk-your-key..."]
+    }
+  }
+}
+```
+
+---
+
+## Troubleshooting
+
+### "Cannot connect to database"
+
+```bash
+docker ps | grep matrixone
+# If not running:
+docker start matrixone
+```
+
+### "EMBEDDING_PROVIDER=local but compiled without local-embedding feature"
+
+The pre-built binaries from GitHub Releases do not include local embedding. Use an OpenAI-compatible embedding service instead, or build from source with the feature enabled:
+
+```bash
+cd Memoria/memoria
+cargo build --release -p memoria-cli --features local-embedding
+```
+
+### First query is slow
+
+Expected with local embedding — model loads into memory on first query (~3-5s). Use an embedding service to avoid this by setting `EMBEDDING_PROVIDER=openai` in the MCP config `env` block.
+
+### AI tool doesn't seem to use memory
+
+1. Verify `memoria` is in PATH: `which memoria`
+2. Restart the AI tool after editing the MCP config
+3. Test the server directly: `memoria mcp --db-url "mysql+pymysql://root:111@localhost:6001/memoria"`
+
+### `memory_reflect` / `memory_extract_entities` returns "LLM not configured"
+
+These tools support a `mode` parameter:
+- `auto` (default): uses server-side LLM if configured, otherwise returns raw data for the AI agent to process
+- `candidates`: always returns raw data for the agent to process — no LLM needed
+- `internal`: forces server-side LLM processing — fails if `LLM_API_KEY` is not set
+
+In MCP mode, the calling agent is already an LLM, so `auto` (default) works out of the box — it falls back to `candidates` automatically. No extra LLM configuration needed.
+
+### Episodic memory returns HTTP 503
+
+`POST /v1/sessions/{id}/summary` requires LLM configuration. Set `LLM_API_KEY` in the MCP config `env` block (see above).
+
+---
+
+## Development
+
+### Quick setup (local dev)
+
+```bash
+# Start MatrixOne + API
+make up
+
+# In another terminal, configure your AI tool for remote mode:
+cd your-project
+memoria init --tool kiro --api-url "http://localhost:8100" --token "test-master-key-for-docker-compose"
+
+# Restart your AI tool
+```
+
+Or use embedded mode (direct DB, no API):
+```bash
+cd your-project
+memoria init --tool kiro --db-url "mysql+pymysql://root:111@localhost:6001/memoria"
+```
+
+### Run tests
+
+```bash
+make test-unit          # Unit tests (no DB)
+make test               # All tests (needs DB)
+make test-e2e           # E2E API tests (needs DB)
+```
+
+### Bump version and publish
+
+```bash
+make release VERSION=0.2.0      # Bump version, generate CHANGELOG, tag, push
+                                 # CI builds binaries + Docker image automatically
+make release-rc VERSION=0.2.0-rc1  # Pre-release
+```
 
 ---
 
